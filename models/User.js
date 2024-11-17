@@ -46,6 +46,18 @@ const UserSchema = new mongoose.Schema({
     twoFactorSecret: {
         type: String,
     },
+    failedLoginAttempts: {
+        type: Number,
+        default: 0,
+    },
+    isLocked: {
+        type: Boolean,
+        default: false,
+    },
+    lastFailedAttempt: {
+        type: Date,
+        default: null,
+    }    
 });
 
 // Хэширование пароля перед сохранением
