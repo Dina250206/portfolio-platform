@@ -49,7 +49,7 @@ A portfolio platform built using **Node.js** that supports user authentication, 
 3. Create a **Mailtrap** account for email testing.
 
 ### Installation
-1. Clone the repository:
+   Clone the repository:
    ```bash
    git clone https://github.com/your-username/portfolio-platform.git
    cd portfolio-platform
