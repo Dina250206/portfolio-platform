@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portfolio</title>
+    <link rel="stylesheet" href="/styles.css">
+    <!-- Подключаем Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <%- include('partials/navbar') %>
+
+    <h1>Portfolio</h1>
+
+    <!-- Форма для загрузки изображений, видна только при входе -->
+    <div id="uploadSection" style="display: none;">
+        <h2>Upload New Portfolio Item</h2>
+        <form id="uploadForm" action="/portfolio" method="POST" enctype="multipart/form-data">
+            <label for="title">Title:</label>
+            <input type="text" id="title" name="title" required>
+            <br>
+            <label for="description">Description:</label>
+            <textarea id="description" name="description" required></textarea>
+            <br>
+            <label for="images">Upload images one by one:</label>
+            <input type="file" id="images" name="images" accept="image/jpeg,image/png,image/gif">
+            <br>
+            <button type="button" id="addImage">Add Image</button>
+            <button type="submit">Upload</button>
+        </form>
+    </div>
+
+    <!-- Предпросмотр изображений -->
+    <h3>Image Preview:</h3>
+    <div id="preview"></div>
+
+    <!-- Вывод существующих элементов портфолио -->
+    <h2>Existing Portfolio Items</h2>
+    <% if (items.length === 0) { %>
+        <p>No portfolio items available.</p>
+    <% } else { %>
+        <% items.forEach(item => { %>
+            <div class="portfolio-item">
+                <h2><%= item.title %></h2>
+                <p><%= item.description %></p>
+                <!-- Карусель -->
+                <div id="carousel<%= item._id %>" class="carousel slide" data-bs-ride="carousel">
+                    <div class="carousel-inner">
+                        <% item.images.forEach((image, index) => { %>
+                            <div class="carousel-item <%= index === 0 ? 'active' : '' %>">
+                                <img src="/uploads/<%= image.split('uploads/')[1] %>" class="d-block w-100" alt="Image <%= index + 1 %>">
+                            </div>
+                        <% }) %>
+                    </div>
+                    <a class="carousel-control-prev" href="#carousel<%= item._id %>" role="button" data-bs-slide="prev">
+                        <span class="carousel-control-prev-icon" aria-hidden="true"></span>
+                        <span class="visually-hidden">Previous</span>
+                    </a>
+                    <a class="carousel-control-next" href="#carousel<%= item._id %>" role="button" data-bs-slide="next">
+                        <span class="carousel-control-next-icon" aria-hidden="true"></span>
+                        <span class="visually-hidden">Next</span>
+                    </a>
+                </div>
+                <!-- Кнопки для администратора -->
+                <div class="admin-controls" style="display: none;">
+                    <button class="btn btn-warning update-button" data-id="<%= item._id %>" data-title="<%= item.title %>" data-description="<%= item.description %>">Update</button>
+                    <button class="btn btn-danger delete-button" data-id="<%= item._id %>">Delete</button>
+                </div>
+            </div>
+        <% }) %>
+    <% } %>
+
+    <!-- Модальное окно для обновления элемента -->
+    <div class="modal fade" id="updateModal" tabindex="-1" aria-labelledby="updateModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="updateModalLabel">Update Portfolio Item</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="updateForm">
+                        <input type="hidden" id="updateItemId">
+                        <div class="mb-3">
+                            <label for="updateTitle" class="form-label">Title</label>
+                            <input type="text" class="form-control" id="updateTitle" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="updateDescription" class="form-label">Description</label>
+                            <textarea class="form-control" id="updateDescription" rows="3" required></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Save changes</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Подключаем Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const form = document.getElementById('uploadForm');
+            const addImageButton = document.getElementById('addImage');
+            const uploadSection = document.getElementById('uploadSection');
+            const loginLink = document.querySelector('.nav-link[href="/auth/login"]');
+            const logoutLink = document.getElementById('logoutLink');
+            const adminControls = document.querySelectorAll('.admin-controls');
+
+            const selectedFiles = []; // Хранилище для файлов
+
+            // Управление отображением ссылок Login/Logout и секции загрузки
+            const token = localStorage.getItem('token');
+            if (token) {
+                loginLink.style.display = 'none';
+                logoutLink.style.display = 'block';
+                uploadSection.style.display = 'block';
+
+                const payload = JSON.parse(atob(token.split('.')[1]));
+                if (payload.role === 'admin') {
+                    adminControls.forEach(control => control.style.display = 'block');
+                }
+            } else {
+                loginLink.style.display = 'block';
+                logoutLink.style.display = 'none';
+                uploadSection.style.display = 'none';
+            }
+
+            // Обработчик кнопки Logout
+            logoutLink?.addEventListener('click', (event) => {
+                event.preventDefault();
+                localStorage.removeItem('token');
+                alert('Logged out successfully!');
+                location.reload();
+            });
+
+            // Обработчик кнопки обновления поста
+            document.querySelectorAll('.update-button').forEach(button => {
+                button.addEventListener('click', (event) => {
+                    const id = event.target.dataset.id;
+                    const title = event.target.dataset.title;
+                    const description = event.target.dataset.description;
+
+                    // Устанавливаем значения в модальное окно
+                    document.getElementById('updateItemId').value = id;
+                    document.getElementById('updateTitle').value = title;
+                    document.getElementById('updateDescription').value = description;
+
+                    // Открываем модальное окно
+                    const updateModal = new bootstrap.Modal(document.getElementById('updateModal'));
+                    updateModal.show();
+                });
+            });
+
+            // Обработка формы обновления элемента
+            document.getElementById('updateForm').addEventListener('submit', async (event) => {
+                event.preventDefault();
+
+                const id = document.getElementById('updateItemId').value;
+                const title = document.getElementById('updateTitle').value;
+                const description = document.getElementById('updateDescription').value;
+
+                try {
+                    const response = await fetch(`/portfolio/${id}`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ title, description })
+                    });
+
+                    if (response.ok) {
+                        alert('Portfolio item updated successfully!');
+                        location.reload();
+                    } else {
+                        const error = await response.json();
+                        alert(`Error: ${error.message}`);
+                    }
+                } catch (err) {
+                    console.error('Error updating portfolio item:', err);
+                    alert('Failed to update portfolio item.');
+                }
+            });
+        });
+    </script>
+</body>
+</html>
