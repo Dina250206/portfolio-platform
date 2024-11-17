@@ -1,19 +1,30 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const nodemailer = require('nodemailer');
 const speakeasy = require('speakeasy');
 const qrcode = require('qrcode');
+const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const sendEmail = require('../config/nodemailer'); // Подключение Nodemailer из config
 
 const router = express.Router();
 
-// Настройка Nodemailer
-const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-    },
+// Функция для генерации JWT токена
+const generateToken = (user) => {
+    return jwt.sign(
+        { id: user._id, role: user.role },
+        process.env.JWT_SECRET,
+        { expiresIn: process.env.JWT_EXPIRES_IN || '1h' }
+    );
+};
+
+// Рендер страницы регистрации
+router.get('/register', (req, res) => {
+    res.render('register'); // Убедитесь, что файл views/register.ejs существует
+});
+
+// Рендер страницы логина
+router.get('/login', (req, res) => {
+    res.render('login'); // Убедитесь, что файл views/login.ejs существует
 });
 
 // Регистрация пользователя
@@ -21,32 +32,34 @@ router.post('/register', async (req, res) => {
     try {
         const { username, password, firstName, lastName, age, gender } = req.body;
 
-        // Проверка обязательных полей
         if (!username || !password || !firstName || !lastName || !age || !gender) {
             return res.status(400).json({ message: 'All fields are required.' });
         }
 
-        // Проверка на существующего пользователя
+        if (password.length < 6) {
+            return res.status(400).json({ message: 'Password must be at least 6 characters long.' });
+        }
+
         const existingUser = await User.findOne({ username });
         if (existingUser) {
             return res.status(400).json({ message: 'Username already exists.' });
         }
 
-        // Создание нового пользователя
-        const newUser = new User({ username, password, firstName, lastName, age, gender });
+        let role = 'editor';
+        const adminEmail = 'kozhayevadina6@gmail.com';
+        if (username === adminEmail) {
+            role = 'admin';
+        }
+
+        const newUser = new User({ username, password, firstName, lastName, age, gender, role });
         await newUser.save();
 
-        // Отправка приветственного письма
-        const mailOptions = {
-            from: process.env.EMAIL_USER,
-            to: username,
-            subject: 'Welcome to the Portfolio Platform!',
-            text: `Hello ${firstName}, welcome to our platform!`,
-        };
+        const subject = 'Welcome to the Portfolio Platform!';
+        const text = `Hello ${firstName}, welcome to our platform! Your role is: ${role}.`;
 
-        await transporter.sendMail(mailOptions);
+        await sendEmail(username, subject, text);
 
-        res.status(201).json({ message: 'User registered successfully!' });
+        res.status(201).json({ message: 'User registered successfully!', role });
     } catch (error) {
         console.error('Error during registration:', error.message);
         res.status(500).json({ message: 'Server error.' });
@@ -62,19 +75,43 @@ router.post('/login', async (req, res) => {
             return res.status(400).json({ message: 'Username and password are required.' });
         }
 
-        // Проверка существования пользователя
         const user = await User.findOne({ username });
         if (!user) {
             return res.status(400).json({ message: 'Invalid username or password.' });
         }
 
-        // Проверка пароля
+        const currentTime = new Date();
+        if (user.lastFailedAttempt && currentTime - user.lastFailedAttempt >= 15 * 60 * 1000) {
+            user.failedLoginAttempts = 0;
+            user.isLocked = false;
+            await user.save();
+        }
+
+        if (user.isLocked) {
+            return res.status(403).json({ message: 'Account is locked due to multiple failed login attempts.' });
+        }
+
         const isPasswordValid = await user.isValidPassword(password);
         if (!isPasswordValid) {
+            user.failedLoginAttempts += 1;
+            user.lastFailedAttempt = currentTime;
+
+            if (user.failedLoginAttempts >= 3) {
+                user.isLocked = true;
+
+                const subject = 'Account Locked';
+                const text = 'Your account has been locked due to multiple failed login attempts.';
+                await sendEmail(user.username, subject, text);
+            }
+
+            await user.save();
             return res.status(400).json({ message: 'Invalid username or password.' });
         }
 
-        // Проверка 2FA, если включена
+        user.failedLoginAttempts = 0;
+        user.lastFailedAttempt = null;
+        await user.save();
+
         if (user.is2FAEnabled) {
             if (!token) {
                 return res.status(400).json({ message: '2FA token is required.' });
@@ -91,9 +128,8 @@ router.post('/login', async (req, res) => {
             }
         }
 
-        // Аутентификация успешна
-        req.session.user = { id: user._id, role: user.role }; // Сохраняем данные сессии
-        res.status(200).json({ message: 'Login successful.' });
+        const jwtToken = generateToken(user);
+        res.status(200).json({ message: 'Login successful.', token: jwtToken });
     } catch (error) {
         console.error('Error during login:', error.message);
         res.status(500).json({ message: 'Server error.' });
@@ -120,5 +156,6 @@ router.post('/setup-2fa', async (req, res) => {
         res.status(500).json({ message: 'Server error.' });
     }
 });
+
 
 module.exports = router;
