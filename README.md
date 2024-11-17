@@ -12,7 +12,6 @@ A comprehensive portfolio platform built with **Node.js**, designed to showcase 
 - **Roles and Permissions**:
   - **Admin**: Full access to manage users and portfolio items.
   - **Editor**: Can create and update portfolio items but cannot delete them.
-  - **Viewer**: Limited to viewing portfolio content.
 
 ### Portfolio Management
 - **CRUD Operations**:
